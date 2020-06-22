@@ -1,0 +1,14 @@
+[deluge]
+Host = deluge.local
+Port = 58846
+Username = deluge
+Password = deluge_super_password
+[telegram]
+Token = 1111:token
+[logging]
+Level = INFO
+[socks5]
+Host = hide.my.ass
+Port = 443
+Username = suck_rkn
+Password = secure_password
