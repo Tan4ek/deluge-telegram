@@ -1,14 +1,15 @@
 #!/usr/bin/env python3
 
+import base64
 import configparser
 import logging
+import os.path
 import signal
 import sys
 
 import telegram
 from deluge_client import DelugeRPCClient
-from telegram.ext import MessageHandler, Filters
-from telegram.ext import Updater, CommandHandler
+from telegram.ext import MessageHandler, Filters, Updater
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -24,18 +25,19 @@ deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
 deluge_client.connect()
 
 
+def get_deluge_torrent_name_by_id(deluge_torrent_id):
+    status = deluge_client.core.get_torrents_status({'id': deluge_torrent_id}, ['name'])
+    for key in status:
+        return status[key]['name']
+
+
 def handle_message(update, context):
     message = update.message.text
     if isinstance(message, str) and message.startswith('magnet'):
         magnet_uri = message
         try:
-            magnet_add = deluge_client.core.add_torrent_magnet(magnet_uri, {})
-
-            print(magnet_add)
-            status = deluge_client.core.get_torrents_status({'id': magnet_add}, ['name'])
-            torrent_name = ""
-            for key in status:
-                torrent_name = status[key]['name']
+            deluge_torrent_id = deluge_client.core.add_torrent_magnet(magnet_uri, {})
+            torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
             context.bot.send_message(chat_id=update.effective_chat.id, text="Downloading `{0}`".format(torrent_name),
                                      parse_mode=telegram.ParseMode.MARKDOWN)
         except Exception as e:
@@ -43,6 +45,28 @@ def handle_message(update, context):
     else:
         context.bot.send_message(chat_id=update.effective_chat.id,
                                  text="Link is not magnet".format(message),
+                                 parse_mode=telegram.ParseMode.MARKDOWN)
+
+
+def handle_file(update, context):
+    file_name = update.message.document.file_name
+    root, ext = os.path.splitext(file_name)
+    if ext == '.torrent':
+        try:
+            file_id = update.message.document.file_id
+            file = context.bot.get_file(file_id)
+            base64_file = base64.b64encode(file.download_as_bytearray())
+            deluge_torrent_id = deluge_client.core.add_torrent_file(file_name, base64_file.decode("utf-8"), {})
+            torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
+            context.bot.send_message(chat_id=update.effective_chat.id, text="Downloading `{0}`".format(torrent_name),
+                                     parse_mode=telegram.ParseMode.MARKDOWN)
+
+        except Exception as e:
+            context.bot.send_message(chat_id=get_deluge_torrent_name_by_id,
+                                     text="Error add torrent file: {}".format(str(e)))
+    else:
+        context.bot.send_message(chat_id=update.effective_chat.id,
+                                 text="File `{}` is not a `.torrent`".format(file_name),
                                  parse_mode=telegram.ParseMode.MARKDOWN)
 
 
@@ -64,13 +88,15 @@ if config.has_section('socks5'):
         }
 
 tg_updater = Updater(config.get('telegram', 'token'), use_context=True, request_kwargs=tg_request_params)
-echo_handler = MessageHandler(Filters.text & (~Filters.command), handle_message)
+message_handler = MessageHandler(Filters.text & (~Filters.command), handle_message)
+file_handler = MessageHandler(Filters.document, handle_file)
 dispatcher = tg_updater.dispatcher
-dispatcher.add_handler(echo_handler)
+dispatcher.add_handler(message_handler)
+dispatcher.add_handler(file_handler)
 # tg_updater.dispatcher.add_handler(CommandHandler("add_magnet", add_magnet))
 
 
-def stop_app():
+def stop_app(g, i):
     try:
         tg_updater.stop()
         deluge_client.disconnect()
