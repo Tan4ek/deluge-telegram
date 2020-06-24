@@ -5,6 +5,7 @@ Username = deluge
 Password = deluge_super_password
 [telegram]
 Token = 1111:token
+UserIds = telegram_user_id_1,telegram_user_id_2
 [logging]
 Level = INFO
 [socks5]

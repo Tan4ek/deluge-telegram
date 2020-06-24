@@ -6,6 +6,7 @@ import logging
 import os.path
 import signal
 import sys
+from functools import wraps
 
 import telegram
 from deluge_client import DelugeRPCClient
@@ -24,6 +25,20 @@ deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
                                 decode_utf8=True)
 deluge_client.connect()
 
+ALLOWED_TELEGRAM_USER_IDS = [int(x) for x in config['telegram'].get('UserIds', "").split(",")]
+
+
+def restricted(func):
+    @wraps(func)
+    def wrapped(update, context, *args, **kwargs):
+        user_id = update.effective_user.id
+        if user_id not in ALLOWED_TELEGRAM_USER_IDS:
+            logging.warning("Unauthorized access denied for {}.".format(user_id))
+            context.bot.send_message(chat_id=update.effective_chat.id, text="You are not authorized")
+            return
+        return func(update, context, *args, **kwargs)
+    return wrapped
+
 
 def get_deluge_torrent_name_by_id(deluge_torrent_id):
     status = deluge_client.core.get_torrents_status({'id': deluge_torrent_id}, ['name'])
@@ -31,6 +46,7 @@ def get_deluge_torrent_name_by_id(deluge_torrent_id):
         return status[key]['name']
 
 
+@restricted
 def handle_message(update, context):
     message = update.message.text
     if isinstance(message, str) and message.startswith('magnet'):
@@ -48,6 +64,7 @@ def handle_message(update, context):
                                  parse_mode=telegram.ParseMode.MARKDOWN)
 
 
+@restricted
 def handle_file(update, context):
     file_name = update.message.document.file_name
     root, ext = os.path.splitext(file_name)
