@@ -81,6 +81,7 @@ def handle_file(update, context):
             base64_file = base64.b64encode(file.download_as_bytearray())
             deluge_torrent_id = deluge_client.core.add_torrent_file(file_name, base64_file.decode("utf-8"), {})
             torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
+            user_service.create_torrent(update.effective_user.id, deluge_torrent_id)
             context.bot.send_message(chat_id=update.effective_chat.id, text="Downloading `{0}`".format(torrent_name),
                                      parse_mode=telegram.ParseMode.MARKDOWN)
 
