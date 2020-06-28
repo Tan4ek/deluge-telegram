@@ -12,8 +12,12 @@ import telegram
 from deluge_client import DelugeRPCClient
 from telegram.ext import MessageHandler, Filters, Updater
 
+from schedule_thread import ScheduleThread
+from user_service import UserService
+
 config = configparser.ConfigParser()
 config.read('config.ini')
+_DB_SQLITE_FILE = 'db.sqlite3'
 
 logging.basicConfig(level=config.get('logging', 'level', fallback='INFO'),
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
@@ -24,6 +28,8 @@ deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
                                 config.get('deluge', 'password'),
                                 decode_utf8=True)
 deluge_client.connect()
+
+user_service = UserService(_DB_SQLITE_FILE)
 
 ALLOWED_TELEGRAM_USER_IDS = [int(x) for x in config['telegram'].get('UserIds', "").split(",")]
 
@@ -41,9 +47,8 @@ def restricted(func):
 
 
 def get_deluge_torrent_name_by_id(deluge_torrent_id):
-    status = deluge_client.core.get_torrents_status({'id': deluge_torrent_id}, ['name'])
-    for key in status:
-        return status[key]['name']
+    status = deluge_client.core.get_torrent_status(deluge_torrent_id, ['name'])
+    return status['name']
 
 
 @restricted
@@ -54,6 +59,7 @@ def handle_message(update, context):
         try:
             deluge_torrent_id = deluge_client.core.add_torrent_magnet(magnet_uri, {})
             torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
+            user_service.create_torrent(update.effective_user.id, deluge_torrent_id)
             context.bot.send_message(chat_id=update.effective_chat.id, text="Downloading `{0}`".format(torrent_name),
                                      parse_mode=telegram.ParseMode.MARKDOWN)
         except Exception as e:
@@ -87,13 +93,6 @@ def handle_file(update, context):
                                  parse_mode=telegram.ParseMode.MARKDOWN)
 
 
-# def add_magnet(update, context):
-#     message = context.args[0]
-#     magnet_add = deluge_client.core.add_torrent_magnet(message, {})
-#     status = deluge_client.core.get_torrents_status({'id': magnet_add}, ['name'])
-#     update.message.reply_text("add {}".format(status))
-
-
 tg_request_params = {}
 if config.has_section('socks5'):
     socks5_cfg = config['socks5']
@@ -110,11 +109,15 @@ file_handler = MessageHandler(Filters.document, handle_file)
 dispatcher = tg_updater.dispatcher
 dispatcher.add_handler(message_handler)
 dispatcher.add_handler(file_handler)
-# tg_updater.dispatcher.add_handler(CommandHandler("add_magnet", add_magnet))
+
+st = ScheduleThread(user_service, tg_updater.bot, deluge_client)
+st.start()
 
 
 def stop_app(g, i):
     try:
+        st.stop()
+        user_service.disconnect()
         tg_updater.stop()
         deluge_client.disconnect()
         sys.exit(0)

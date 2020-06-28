@@ -1,3 +1,4 @@
 python-telegram-bot[socks]==12.7
 python-telegram-bot==12.7
 deluge-client==1.9.0
+schedule==0.6.0
