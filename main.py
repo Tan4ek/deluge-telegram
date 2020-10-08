@@ -43,6 +43,7 @@ def restricted(func):
             context.bot.send_message(chat_id=update.effective_chat.id, text="You are not authorized")
             return
         return func(update, context, *args, **kwargs)
+
     return wrapped
 
 
@@ -94,6 +95,10 @@ def handle_file(update, context):
                                  parse_mode=telegram.ParseMode.MARKDOWN)
 
 
+def error_callback(update, contex):
+    logging.error(contex.error)
+
+
 tg_request_params = {}
 if config.has_section('socks5'):
     socks5_cfg = config['socks5']
@@ -110,6 +115,7 @@ file_handler = MessageHandler(Filters.document, handle_file)
 dispatcher = tg_updater.dispatcher
 dispatcher.add_handler(message_handler)
 dispatcher.add_handler(file_handler)
+dispatcher.add_error_handler(error_callback)
 
 st = ScheduleThread(user_service, tg_updater.bot, deluge_client)
 st.start()

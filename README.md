@@ -10,4 +10,4 @@ vim config.ini
 # Run in Docker
 `touch /home/user/db.sqlite3`
 
-`docker run --name deluge-telegram -v '/home/user/db.sqlite3:/app/db.sqlite3' -d deluge-telegram`
+`docker run --name deluge-telegram -v '/home/user/db.sqlite3:/app/db.sqlite3' -d --restart unless-stopped --rm deluge-telegram`
