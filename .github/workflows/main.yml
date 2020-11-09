@@ -37,7 +37,7 @@ jobs:
         id: prepare      
         run: |        
           echo ::set-output name=docker_platform::${DOCKER_TARGET_PLATFORM}        
-          echo ::set-output name=docker_image::/${DOCKER_IMAGE}        
+          echo ::set-output name=docker_image::${DOCKER_IMAGE}        
           echo ::set-output name=version::${GITHUB_RUN_NUMBER}  
       - name: Docker Login      
         if: success()      
@@ -46,7 +46,11 @@ jobs:
       - name: Run Buildx (push image)      
         if: success()      
         run: |        
-          docker buildx build \        --platform ${{ steps.prepare.outputs.docker_platform }} \        --tag ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.version }} \        --file ./Dockerfile.arm64 \        --output type=image,push=true .
+          docker buildx build \
+          --platform ${{ steps.prepare.outputs.docker_platform }} \
+          --tag ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.version }} \
+          --file ./Dockerfile.arm64 \
+          --output type=image,push=true .
       # Runs a set of commands using the runners shell
       - name: Run a multi-line script
         run: |
