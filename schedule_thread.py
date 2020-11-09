@@ -1,3 +1,4 @@
+import logging
 import threading
 import time
 
@@ -10,6 +11,7 @@ from user_service import TorrentStatus
 from user_service import UserService
 
 _CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS = 60
+_CHECK_EXPIRED_CACHE_INTERVAL_SECONDS = 60 * 60
 
 
 class ScheduleThread(threading.Thread):
@@ -38,10 +40,16 @@ class ScheduleThread(threading.Thread):
             if str(deluge_state) == TorrentStatus.DOWNLOADING.value:
                 self._user_service.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADING)
 
+    def delete_expired_cache_job(self):
+        delete_lines = self._user_service.delete_expired_cache()
+        logging.debug(f'deleted expired cache rows {delete_lines}')
+
     def run(self):
         scheduler = SafeScheduler()
-        scheduler.every(_CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS).seconds\
+        scheduler.every(_CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS).seconds \
             .do(self.not_downloaded_torrents_status_check_job)
+        scheduler.every(_CHECK_EXPIRED_CACHE_INTERVAL_SECONDS).seconds \
+            .do(self.delete_expired_cache_job)
         scheduler.run_pending()
         while not self.cease_continuous_run.is_set():
             scheduler.run_pending()

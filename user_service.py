@@ -1,6 +1,6 @@
 import sqlite3
-from enum import Enum
 from datetime import datetime
+from enum import Enum
 
 
 # https://github.com/deluge-torrent/deluge/blob/develop/deluge/core/torrent.py#L51
@@ -80,6 +80,13 @@ class UserService:
         r = c.execute(f"SELECT key, value, create_time, ttl_seconds FROM {self._CACHE_TABLE} "
                       f"WHERE key = '{key}'")
         return c.fetchone()
+
+    def delete_expired_cache(self) -> int:
+        with self.conn:
+            self.conn.execute(
+                f"DELETE FROM {self._CACHE_TABLE} "
+                f"WHERE strftime('%s',create_time) + ttl_seconds - strftime('%s','now')  < 0")
+            return self.conn.total_changes
 
     def disconnect(self):
         self.conn.close()
