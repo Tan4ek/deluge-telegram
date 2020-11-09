@@ -35,7 +35,7 @@ jobs:
         run: |        
           echo ::set-output name=docker_platform::${DOCKER_TARGET_PLATFORM}        
           echo ::set-output name=docker_image::${DOCKER_IMAGE}        
-          echo ::set-output name=version::${GITHUB_RUN_NUMBER}  
+          echo ::set-output name=version::arm64  
       - name: Docker Login      
         if: success()      
         run: |        
@@ -47,15 +47,6 @@ jobs:
         with:
           image: tonistiigi/binfmt:latest
           platforms: all
-      -
-        name: Available platforms qemu
-        run: echo ${{ steps.qemu.outputs.platforms }}
-      -
-        name: Builder instance name
-        run: echo ${{ steps.buildx.outputs.name }}
-      -
-        name: Available platforms
-        run: echo ${{ steps.buildx.outputs.platforms }}
       - name: Run Buildx (push image)      
         if: success()      
         run: |        
