@@ -47,7 +47,7 @@ jobs:
         with:
           image: tonistiigi/binfmt:latest
           platforms: all
-      - name: Run Buildx (push image)      
+      - name: Build & push arm64 version
         if: success()      
         run: |        
           docker buildx build \
@@ -55,3 +55,11 @@ jobs:
           --tag ${{ steps.prepare.outputs.docker_image }}:${{ steps.prepare.outputs.version }} \
           --file ./Dockerfile.arm64 \
           --output type=image,push=true .
+      - name: Build & push amd64 version
+        if: success()
+        uses: docker/build-push-action@v2
+        with:
+          push: true
+          file: ./Dockerfile
+          platforms: linux/amd64,linux/386
+          tags: tan4ek/deluge-telegram:latest
