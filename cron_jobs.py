@@ -1,8 +1,8 @@
 import logging
 
-from deluge_client import DelugeRPCClient
 from telegram import Bot, ParseMode
 
+from deluge_service import DelugeService
 from repository import TorrentStatus, Repository
 
 
@@ -33,11 +33,11 @@ class DeleteExpiredCacheJob(CronJob):
 class NotDownloadedTorrentsStatusCheckJob(CronJob):
     _CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS = 60
 
-    def __init__(self, repository: Repository, bot: Bot, deluge_client: DelugeRPCClient):
+    def __init__(self, repository: Repository, bot: Bot, deluge_service: DelugeService):
         super().__init__()
         self._repository = repository
         self._bot = bot
-        self._deluge_client = deluge_client
+        self._deluge_service = deluge_service
 
     def interval_seconds(self) -> int:
         return self._CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS
@@ -47,7 +47,7 @@ class NotDownloadedTorrentsStatusCheckJob(CronJob):
             telegram_user_id = s[0]
             deluge_torrent_id = s[1]
             old_status = s[2]
-            ts = self._deluge_client.core.get_torrent_status(deluge_torrent_id, ['name', 'state'])
+            ts = self._deluge_service.torrent_status(deluge_torrent_id)
             torrent_name = ts['name']
             deluge_state = ts['state']
 

@@ -11,13 +11,13 @@ import sys
 from functools import wraps
 from hashlib import sha256
 
-from deluge_client import DelugeRPCClient
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
 from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater
-from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob
 
-from schedule_thread import ScheduleThread
+from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob
+from deluge_service import DelugeService
 from repository import Repository
+from schedule_thread import ScheduleThread
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -26,12 +26,7 @@ _DB_SQLITE_FILE = 'db.sqlite3'
 logging.basicConfig(level=config.get('logging', 'level', fallback='INFO'),
                     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
-                                int(config.get('deluge', 'port')),
-                                config.get('deluge', 'username'),
-                                config.get('deluge', 'password'),
-                                decode_utf8=True)
-deluge_client.connect()
+deluge_service = DelugeService(config)
 
 repository = Repository(_DB_SQLITE_FILE)
 
@@ -104,20 +99,20 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                     raise ValueError(f'no value for cache')
 
                 if '_magnet_value' in cache_key and cache_value.startswith('magnet'):
-                    deluge_client.core.remove_torrent(torrent_id, False)
+                    deluge_service.delete_torrent(torrent_id)
                     torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(cache_value, user_id,
                                                                                        override_on_exist=True)
                     query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
                 elif '_file_value' in cache_key and len(cache_value) > 1:
-                    torrent_name = get_deluge_torrent_name_by_id(torrent_id)
-                    deluge_client.core.remove_torrent(torrent_id, False)
+                    torrent_name = deluge_service.torrent_name_by_id(torrent_id)
+                    deluge_service.delete_torrent(torrent_id)
                     torrent_name, deluge_torrent_id = start_download_torrent_by_file(cache_value,
                                                                                      f'{torrent_name}.torrent', user_id,
                                                                                      override_on_exist=True)
                     query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
             if callback_data['action'] == 'skip':
                 logging.debug('callback_action skip, torrent_id {}'.format(torrent_id))
-                query.edit_message_text(f'Torrent `{get_deluge_torrent_name_by_id(torrent_id)}` already exist. '
+                query.edit_message_text(f'Torrent `{deluge_service.torrent_name_by_id(torrent_id)}` already exist. '
                                         f'Skipping download.', parse_mode=ParseMode.MARKDOWN)
 
     except Exception as e:
@@ -126,7 +121,7 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
 
 
 @restricted
-def handle_file(update, context):
+def handle_file(update: Update, context: CallbackContext):
     file_name = update.message.document.file_name
     root, ext = os.path.splitext(file_name)
     chat_id: int = update.effective_chat.id
@@ -150,7 +145,7 @@ def handle_file(update, context):
                 context.bot.send_message(chat_id=chat_id,
                                          text='Torrent already downloaded, what to do?', reply_markup=reply_markup)
             else:
-                context.bot.send_message(chat_id=get_deluge_torrent_name_by_id,
+                context.bot.send_message(chat_id=chat_id,
                                          text="Error add torrent file: {}".format(str(e)))
     else:
         context.bot.send_message(chat_id=chat_id,
@@ -162,18 +157,13 @@ def torrent_id_matcher_from_exception(e):
     return re.search('^Torrent already in session \\((.+?)\\)\\.$', str(e), re.MULTILINE)
 
 
-def get_deluge_torrent_name_by_id(deluge_torrent_id):
-    status = deluge_client.core.get_torrent_status(deluge_torrent_id, ['name'])
-    return status['name']
-
-
 def sha256_str(skip_callback_data: str) -> str:
     return sha256(skip_callback_data.encode()).hexdigest()
 
 
-def start_download_torrent_by_magnet(magnet_uri: str, user_id: int, override_on_exist=False) -> (str, str):
-    deluge_torrent_id = deluge_client.core.add_torrent_magnet(magnet_uri, {})
-    torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
+def start_download_torrent_by_magnet(magnet_url: str, user_id: int, override_on_exist=False) -> (str, str):
+    deluge_torrent_id = deluge_service.add_torrent_magnet(magnet_url)
+    torrent_name = deluge_service.torrent_name_by_id(deluge_torrent_id)
     repository.create_torrent(user_id, deluge_torrent_id, override_on_exist=override_on_exist)
     return torrent_name, deluge_torrent_id
 
@@ -192,8 +182,8 @@ def cache_key_file_value(torrent_id: str, user_id: int) -> str:
 
 def start_download_torrent_by_file(base64_file_str: str, file_name, user_id: int, override_on_exist=False) -> (
         str, str):
-    deluge_torrent_id = deluge_client.core.add_torrent_file(file_name, base64_file_str, {})
-    torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
+    deluge_torrent_id = deluge_service.add_torrent_file(file_name, base64_file_str)
+    torrent_name = deluge_service.torrent_name_by_id(deluge_torrent_id)
     repository.create_torrent(user_id, deluge_torrent_id, override_on_exist=override_on_exist)
     return torrent_name, deluge_torrent_id
 
@@ -219,8 +209,8 @@ def build_reply_markup(already_exist_torrent_id, cache_key):
     return reply_markup
 
 
-def error_callback(update, contex):
-    logging.error(contex.error)
+def error_callback(update: Update, context: CallbackContext):
+    logging.error(context.error)
 
 
 tg_request_params = {}
@@ -240,7 +230,7 @@ dispatcher.add_handler(MessageHandler(Filters.document, handle_file))
 dispatcher.add_handler(CallbackQueryHandler(handle_button_callback))
 dispatcher.add_error_handler(error_callback)
 
-st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.bot, deluge_client),
+st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.bot, deluge_service),
                      DeleteExpiredCacheJob(repository)])
 st.start()
 
@@ -250,7 +240,7 @@ def stop_app(g, i):
         st.stop()
         repository.disconnect()
         tg_updater.stop()
-        deluge_client.disconnect()
+        deluge_service.disconnect()
         sys.exit(0)
     except Exception as e:
         logging.error("Exiting immediately cause error {}".format(e))
