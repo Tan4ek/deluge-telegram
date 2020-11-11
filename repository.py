@@ -13,7 +13,7 @@ class TorrentStatus(Enum):
         return self.name
 
 
-class UserService:
+class Repository:
     _TORRENT_TABLE = "torrents"
     _CACHE_TABLE = "cache"
 
@@ -38,10 +38,11 @@ class UserService:
         create_time text NOT NULL,
         ttl_seconds integer NOT NULL)
         """
+
         sql_cache_index = f"CREATE UNIQUE INDEX IF NOT EXISTS idx_key ON {self._CACHE_TABLE} (key);"
-        self.conn.execute(sql_create_auth_token)
-        self.conn.execute(sql_create_cache)
-        self.conn.execute(sql_cache_index)
+
+        for sql in [sql_create_auth_token, sql_create_cache, sql_cache_index]:
+            self.conn.execute(sql)
 
     def create_torrent(self, tg_user_id: int, deluge_torrent_id: str, override_on_exist=False):
         x = (datetime.utcnow().isoformat(), datetime.utcnow().isoformat(), tg_user_id, deluge_torrent_id,
@@ -90,11 +91,3 @@ class UserService:
 
     def disconnect(self):
         self.conn.close()
-
-
-# testing
-if __name__ == '__main__':
-    us = UserService("/home/ssr/Programming/deluge-telegram/dd-test.sqlite3")
-    us.create_torrent(101, 'ddd')
-    print(us.not_downloaded_torrents())
-    us.update_status('ddd', TorrentStatus.DOWNLOADED)

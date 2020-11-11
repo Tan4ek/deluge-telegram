@@ -1,56 +1,22 @@
-import logging
 import threading
 import time
+from typing import List
 
-import telegram
-from deluge_client import DelugeRPCClient
-from telegram import Bot
-
+from cron_jobs import CronJob
 from safe_schedule import SafeScheduler
-from user_service import TorrentStatus
-from user_service import UserService
-
-_CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS = 60
-_CHECK_EXPIRED_CACHE_INTERVAL_SECONDS = 60 * 60
 
 
 class ScheduleThread(threading.Thread):
 
-    def __init__(self, user_service: UserService, bot: Bot, deluge_client: DelugeRPCClient):
+    def __init__(self, cron_jobs: List[CronJob]):
         super().__init__()
-        self._user_service = user_service
-        self._bot = bot
-        self._deluge_client = deluge_client
+        self._cron_jobs: List[CronJob] = cron_jobs
         self.cease_continuous_run = threading.Event()
-
-    def not_downloaded_torrents_status_check_job(self):
-        x = self._user_service.not_downloaded_torrents()
-        for s in x:
-            telegram_user_id = s[0]
-            deluge_torrent_id = s[1]
-            old_status = s[2]
-            ts = self._deluge_client.core.get_torrent_status(deluge_torrent_id, ['name', 'state'])
-            torrent_name = ts['name']
-            deluge_state = ts['state']
-
-            if str(deluge_state) == TorrentStatus.DOWNLOADED.value:
-                self._bot.send_message(chat_id=telegram_user_id, text=f"Download `{torrent_name}` completed",
-                                       parse_mode=telegram.ParseMode.MARKDOWN)
-                self._user_service.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADED)
-            if str(deluge_state) == TorrentStatus.DOWNLOADING.value:
-                self._user_service.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADING)
-
-    def delete_expired_cache_job(self):
-        delete_lines = self._user_service.delete_expired_cache()
-        logging.debug(f'deleted expired cache rows {delete_lines}')
 
     def run(self):
         scheduler = SafeScheduler()
-        scheduler.every(_CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS).seconds \
-            .do(self.not_downloaded_torrents_status_check_job)
-        scheduler.every(_CHECK_EXPIRED_CACHE_INTERVAL_SECONDS).seconds \
-            .do(self.delete_expired_cache_job)
-        scheduler.run_pending()
+        for cron_job in self._cron_jobs:
+            scheduler.every(cron_job.interval_seconds()).seconds.do(cron_job.run)
         while not self.cease_continuous_run.is_set():
             scheduler.run_pending()
             time.sleep(1)

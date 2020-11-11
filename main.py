@@ -14,9 +14,10 @@ from hashlib import sha256
 from deluge_client import DelugeRPCClient
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
 from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater
+from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob
 
 from schedule_thread import ScheduleThread
-from user_service import UserService
+from repository import Repository
 
 config = configparser.ConfigParser()
 config.read('config.ini')
@@ -32,7 +33,7 @@ deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
                                 decode_utf8=True)
 deluge_client.connect()
 
-user_service = UserService(_DB_SQLITE_FILE)
+repository = Repository(_DB_SQLITE_FILE)
 
 ALLOWED_TELEGRAM_USER_IDS = [int(x) for x in config['telegram'].get('UserIds', "").split(",")]
 
@@ -86,7 +87,7 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
     query.answer()
 
     try:
-        cache_value = user_service.get_cache(query.data)
+        cache_value = repository.get_cache(query.data)
         user_id: int = query.from_user.id
         if not cache_value:
             raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
@@ -96,7 +97,7 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
             torrent_id = callback_data['torrent_id']
             if callback_data['action'] == 'reload':
                 logging.debug('callback_action reload, torrent_id {}'.format(torrent_id))
-                cache_value = user_service.get_cache(callback_data['cache_key'])
+                cache_value = repository.get_cache(callback_data['cache_key'])
                 cache_key = cache_value[0]
                 cache_value = cache_value[1]
                 if not cache_value:
@@ -144,7 +145,7 @@ def handle_file(update, context):
             if type(e) and type(e).__name__ == 'AddTorrentError' and torrent_id_matcher:
                 already_exist_torrent_id = torrent_id_matcher.group(1)
                 cache_key = cache_key_file_value(already_exist_torrent_id, user_id)
-                user_service.create_cache(cache_key, base64_file_str, override_on_exist=True)
+                repository.create_cache(cache_key, base64_file_str, override_on_exist=True)
                 reply_markup = build_reply_markup(already_exist_torrent_id, cache_key)
                 context.bot.send_message(chat_id=chat_id,
                                          text='Torrent already downloaded, what to do?', reply_markup=reply_markup)
@@ -173,7 +174,7 @@ def sha256_str(skip_callback_data: str) -> str:
 def start_download_torrent_by_magnet(magnet_uri: str, user_id: int, override_on_exist=False) -> (str, str):
     deluge_torrent_id = deluge_client.core.add_torrent_magnet(magnet_uri, {})
     torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
-    user_service.create_torrent(user_id, deluge_torrent_id, override_on_exist=override_on_exist)
+    repository.create_torrent(user_id, deluge_torrent_id, override_on_exist=override_on_exist)
     return torrent_name, deluge_torrent_id
 
 
@@ -193,7 +194,7 @@ def start_download_torrent_by_file(base64_file_str: str, file_name, user_id: int
         str, str):
     deluge_torrent_id = deluge_client.core.add_torrent_file(file_name, base64_file_str, {})
     torrent_name = get_deluge_torrent_name_by_id(deluge_torrent_id)
-    user_service.create_torrent(user_id, deluge_torrent_id, override_on_exist=override_on_exist)
+    repository.create_torrent(user_id, deluge_torrent_id, override_on_exist=override_on_exist)
     return torrent_name, deluge_torrent_id
 
 
@@ -206,8 +207,8 @@ def build_reply_markup(already_exist_torrent_id, cache_key):
     # 64 bytes string, this is limit of callback_data
     skip_callback_data_hash = sha256_str(skip_callback_data)
     reload_callback_data_hash = sha256_str(reload_callback_data)
-    user_service.create_cache(skip_callback_data_hash, skip_callback_data, override_on_exist=True)
-    user_service.create_cache(reload_callback_data_hash, reload_callback_data, override_on_exist=True)
+    repository.create_cache(skip_callback_data_hash, skip_callback_data, override_on_exist=True)
+    repository.create_cache(reload_callback_data_hash, reload_callback_data, override_on_exist=True)
     keyboard = [
         [
             InlineKeyboardButton("Skip, do nothing", callback_data=skip_callback_data_hash),
@@ -239,14 +240,15 @@ dispatcher.add_handler(MessageHandler(Filters.document, handle_file))
 dispatcher.add_handler(CallbackQueryHandler(handle_button_callback))
 dispatcher.add_error_handler(error_callback)
 
-st = ScheduleThread(user_service, tg_updater.bot, deluge_client)
+st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.bot, deluge_client),
+                     DeleteExpiredCacheJob(repository)])
 st.start()
 
 
 def stop_app(g, i):
     try:
         st.stop()
-        user_service.disconnect()
+        repository.disconnect()
         tg_updater.stop()
         deluge_client.disconnect()
         sys.exit(0)
