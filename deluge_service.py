@@ -5,6 +5,7 @@ from deluge_client import DelugeRPCClient
 
 
 class DelugeService:
+    # list of deluge filed - https://libtorrent.org/single-page-ref.html
 
     def __init__(self, config):
         self._deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
@@ -73,6 +74,15 @@ class DelugeService:
     def torrent_status(self, torrent_id: str) -> Dict[str, str]:
         # https://github.com/deluge-torrent/deluge/blob/deluge-2.0.3/deluge/core/core.py#L758
         return self._deluge_client.core.get_torrent_status(torrent_id, ['name', 'state'])
+
+    def torrents_status(self, torrent_ids: List[str]) -> List[Dict[str, str]]:
+        fields = ['name', 'state', 'progress', 'completed_time', 'time_added']
+        torrents_dict = self._deluge_client.core.get_torrents_status({"id": [i for i in torrent_ids]}, fields)
+        torrents = []
+        for key, value in torrents_dict.items():
+            value['_id'] = key
+            torrents.append(value)
+        return torrents
 
     def _is_label_enabled(self):
         return self._label_enable and self._label_id

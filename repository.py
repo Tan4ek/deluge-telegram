@@ -5,12 +5,21 @@ from enum import Enum
 
 # https://github.com/deluge-torrent/deluge/blob/develop/deluge/core/torrent.py#L51
 class TorrentStatus(Enum):
-    CREATED = 'Checking',
-    DOWNLOADING = 'Downloading',
+    CREATED = 'Checking'
+    DOWNLOADING = 'Downloading'
     DOWNLOADED = 'Seeding'
+    ERROR = 'Error'
+    UNKNOWN_STUB = '_unknown_stub_'
 
     def __str__(self):
         return self.name
+
+    @staticmethod
+    def get_by_value_safe(value: str):
+        try:
+            return TorrentStatus(value)
+        except ValueError:
+            return TorrentStatus.UNKNOWN_STUB
 
 
 class Repository:
@@ -61,6 +70,15 @@ class Repository:
             self.conn.execute(f"UPDATE {self._TORRENT_TABLE} SET deluge_torrent_status = '{new_status}',"
                               f"last_update_time='{datetime.utcnow().isoformat()}'"
                               f"WHERE deluge_torrent_id = '{deluge_torrent_id}'")
+
+    def all_user_torrents(self, tg_user_id: int, limit=20):
+        assert limit > 0, "negative limit"
+        c = self.conn.cursor()
+        r = c.execute(f"SELECT id, create_time, last_update_time, tg_user_id, deluge_torrent_id, deluge_torrent_status "
+                      f"FROM {self._TORRENT_TABLE} "
+                      f"WHERE tg_user_id = {tg_user_id} "
+                      f"LIMIT {limit}")
+        return c.fetchmany(limit)
 
     def not_downloaded_torrents(self):
         c = self.conn.cursor()

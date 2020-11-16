@@ -11,12 +11,13 @@ import sys
 from functools import wraps
 from hashlib import sha256
 
+from emoji import emojize
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
-from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater
+from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater, CommandHandler
 
 from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob
 from deluge_service import DelugeService
-from repository import Repository
+from repository import Repository, TorrentStatus
 from schedule_thread import ScheduleThread
 
 config = configparser.ConfigParser()
@@ -31,6 +32,13 @@ deluge_service = DelugeService(config)
 repository = Repository(_DB_SQLITE_FILE)
 
 ALLOWED_TELEGRAM_USER_IDS = [int(x) for x in config['telegram'].get('UserIds', "").split(",")]
+
+EMOJI_MAP = {
+    TorrentStatus.CREATED: emojize(':arrow_down:', use_aliases=True),
+    TorrentStatus.DOWNLOADED: emojize(':white_check_mark:', use_aliases=True),
+    TorrentStatus.DOWNLOADING: emojize(':arrow_double_down:', use_aliases=True),
+    TorrentStatus.ERROR: emojize(':sos:', use_aliases=True)
+}
 
 
 def restricted(func):
@@ -153,6 +161,26 @@ def handle_file(update: Update, context: CallbackContext):
                                  parse_mode=ParseMode.MARKDOWN)
 
 
+@restricted
+def handle_torrents_list(update: Update, context: CallbackContext):
+    chat_id: int = update.effective_chat.id
+    user_id: int = update.effective_chat.id
+    user_torrents = repository.all_user_torrents(user_id)
+    torrents = deluge_service.torrents_status([i[4] for i in user_torrents])
+    # last updated at the end of the list
+    sorted_torrents = sorted(torrents,
+                             key=lambda r: r['completed_time'] if r['completed_time'] > 0 else r['time_added'],
+                             reverse=False)
+
+    def build_message_line(t) -> str:
+        return f"{EMOJI_MAP.get(TorrentStatus.get_by_value_safe(t['state']), emojize(':question:'))} `{t['name']}`"
+
+    message_lines = [build_message_line(t) for t in sorted_torrents]
+    context.bot.send_message(chat_id=chat_id,
+                             text='\n'.join(message_lines),
+                             parse_mode=ParseMode.MARKDOWN)
+
+
 def torrent_id_matcher_from_exception(e):
     return re.search('^Torrent already in session \\((.+?)\\)\\.$', str(e), re.MULTILINE)
 
@@ -228,6 +256,7 @@ dispatcher = tg_updater.dispatcher
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_message))
 dispatcher.add_handler(MessageHandler(Filters.document, handle_file))
 dispatcher.add_handler(CallbackQueryHandler(handle_button_callback))
+dispatcher.add_handler(CommandHandler('list', handle_torrents_list))
 dispatcher.add_error_handler(error_callback)
 
 st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.bot, deluge_service),
