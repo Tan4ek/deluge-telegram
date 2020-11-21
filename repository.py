@@ -2,6 +2,8 @@ import sqlite3
 from datetime import datetime
 from enum import Enum
 
+COMMON_FOR_ALL_TG_USER_ID = 0
+
 
 # https://github.com/deluge-torrent/deluge/blob/develop/deluge/core/torrent.py#L51
 class TorrentStatus(Enum):
@@ -63,6 +65,18 @@ class Repository:
                 f"deluge_torrent_status) VALUES (?,?,?,?,?)",
                 x)
 
+    def create_common_torrent(self, deluge_torrent_id: str, override_on_exist=False):
+        return self.create_torrent(COMMON_FOR_ALL_TG_USER_ID, deluge_torrent_id, override_on_exist)
+
+    def torrent_exist_by_deluge_id(self, deluge_torrent_id: str) -> bool:
+        c = self.conn.cursor()
+        c.execute(f"SELECT COUNT(*) FROM {self._TORRENT_TABLE} WHERE deluge_torrent_id = '{deluge_torrent_id}'")
+        result = c.fetchone()
+        if result and len(result) >= 1:
+            return result[0] >= 1
+        else:
+            return False
+
     def update_status(self, deluge_torrent_id: str, new_status: TorrentStatus):
         if new_status is None or not isinstance(new_status, TorrentStatus):
             raise ValueError("invalid 'torrent_status' to update")
@@ -71,12 +85,13 @@ class Repository:
                               f"last_update_time='{datetime.utcnow().isoformat()}'"
                               f"WHERE deluge_torrent_id = '{deluge_torrent_id}'")
 
-    def all_user_torrents(self, tg_user_id: int, limit=20):
+    def all_user_torrents(self, tg_user_id: int, include_common=True, limit=20):
         assert limit > 0, "negative limit"
         c = self.conn.cursor()
         r = c.execute(f"SELECT id, create_time, last_update_time, tg_user_id, deluge_torrent_id, deluge_torrent_status "
                       f"FROM {self._TORRENT_TABLE} "
                       f"WHERE tg_user_id = {tg_user_id} "
+                      f"{'or tg_user_id = {}'.format(COMMON_FOR_ALL_TG_USER_ID) if include_common else ''} "
                       f"LIMIT {limit}")
         return c.fetchmany(limit)
 

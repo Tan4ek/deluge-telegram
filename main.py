@@ -15,7 +15,7 @@ from emoji import emojize
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
 from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater, CommandHandler
 
-from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob
+from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob, ScanCommonTorrents
 from deluge_service import DelugeService
 from repository import Repository, TorrentStatus
 from schedule_thread import ScheduleThread
@@ -260,6 +260,7 @@ dispatcher.add_handler(CommandHandler('list', handle_torrents_list))
 dispatcher.add_error_handler(error_callback)
 
 st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.bot, deluge_service),
+                     ScanCommonTorrents(repository, deluge_service),
                      DeleteExpiredCacheJob(repository)])
 st.start()
 

@@ -78,14 +78,31 @@ class DelugeService:
     def torrents_status(self, torrent_ids: List[str]) -> List[Dict[str, str]]:
         fields = ['name', 'state', 'progress', 'completed_time', 'time_added']
         torrents_dict = self._deluge_client.core.get_torrents_status({"id": [i for i in torrent_ids]}, fields)
+        return DelugeService._dict_key_to_obj(torrents_dict)
+
+    def labeled_torrents(self) -> List[Dict[str, str]]:
+        if self._is_label_enabled():
+            fields = ['name', 'state', 'progress', 'completed_time', 'time_added']
+            labeled_torrents = self._deluge_client.core.get_torrents_status({'label': self._label_id}, fields)
+            return DelugeService._dict_key_to_obj(labeled_torrents)
+        else:
+            return []
+
+    def _is_label_enabled(self) -> bool:
+        if self._label_enable and self._label_id:
+            return True
+        else:
+            return False
+
+    @staticmethod
+    def _dict_key_to_obj(d) -> List[Dict[str, str]]:
+        if not d or not len(d):
+            return []
         torrents = []
-        for key, value in torrents_dict.items():
+        for key, value in d.items():
             value['_id'] = key
             torrents.append(value)
         return torrents
-
-    def _is_label_enabled(self):
-        return self._label_enable and self._label_id
 
     def disconnect(self):
         self._deluge_client.disconnect()
