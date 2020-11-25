@@ -48,16 +48,19 @@ class NotDownloadedTorrentsStatusCheckJob(CronJob):
             deluge_torrent_id = s[1]
             old_status = s[2]
             ts = self._deluge_service.torrent_status(deluge_torrent_id)
-            torrent_name = ts['name']
-            deluge_state = ts['state']
+            if ts:
+                torrent_name = ts['name']
+                deluge_state = ts['state']
 
-            if str(deluge_state) == TorrentStatus.DOWNLOADED.value:
-                if telegram_user_id != COMMON_FOR_ALL_TG_USER_ID:
-                    self._bot.send_message(chat_id=telegram_user_id, text=f"Download `{torrent_name}` completed",
-                                           parse_mode=ParseMode.MARKDOWN)
-                self._repository.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADED)
-            if str(deluge_state) == TorrentStatus.DOWNLOADING.value:
-                self._repository.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADING)
+                if str(deluge_state) == TorrentStatus.DOWNLOADED.value:
+                    if telegram_user_id != COMMON_FOR_ALL_TG_USER_ID:
+                        self._bot.send_message(chat_id=telegram_user_id, text=f"Download `{torrent_name}` completed",
+                                               parse_mode=ParseMode.MARKDOWN)
+                    self._repository.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADED)
+                if str(deluge_state) == TorrentStatus.DOWNLOADING.value:
+                    self._repository.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADING)
+            else:
+                logging.warning(f"Skipping check status for {deluge_torrent_id}. No data.")
 
 
 class ScanCommonTorrents(CronJob):
