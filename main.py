@@ -37,7 +37,8 @@ EMOJI_MAP = {
     TorrentStatus.CREATED: emojize(':arrow_down:', use_aliases=True),
     TorrentStatus.DOWNLOADED: emojize(':white_check_mark:', use_aliases=True),
     TorrentStatus.DOWNLOADING: emojize(':arrow_double_down:', use_aliases=True),
-    TorrentStatus.ERROR: emojize(':sos:', use_aliases=True)
+    TorrentStatus.ERROR: emojize(':sos:', use_aliases=True),
+    TorrentStatus.UNKNOWN_STUB: emojize(':question:', use_aliases=True)
 }
 
 
@@ -173,7 +174,8 @@ def handle_torrents_list(update: Update, context: CallbackContext):
                              reverse=False)
 
     def build_message_line(t) -> str:
-        return f"{EMOJI_MAP.get(TorrentStatus.get_by_value_safe(t['state']), emojize(':question:'))} `{t['name']}`"
+        emoji_t = EMOJI_MAP.get(TorrentStatus.get_by_value_safe(t['state']), EMOJI_MAP.get(TorrentStatus.UNKNOWN_STUB))
+        return f"{emoji_t} `{t['name']}`"
 
     message_lines = [build_message_line(t) for t in sorted_torrents]
     context.bot.send_message(chat_id=chat_id,
