@@ -183,6 +183,20 @@ def handle_torrents_list(update: Update, context: CallbackContext):
                              parse_mode=ParseMode.MARKDOWN)
 
 
+@restricted
+def handle_stop_download_torrents(update: Update, context: CallbackContext):
+    chat_id: int = update.effective_chat.id
+    deluge_service.stop_download_torrents()
+    context.bot.send_message(chat_id=chat_id, text='Stopping download torrents', parse_mode=ParseMode.MARKDOWN)
+
+
+@restricted
+def handle_resume_download_torrents(update: Update, context: CallbackContext):
+    deluge_service.resume_download_torrents()
+    chat_id: int = update.effective_chat.id
+    context.bot.send_message(chat_id=chat_id, text='Starting download torrents', parse_mode=ParseMode.MARKDOWN)
+
+
 def torrent_id_matcher_from_exception(e):
     return re.search('^Torrent already in session \\((.+?)\\)\\.$', str(e), re.MULTILINE)
 
@@ -259,6 +273,8 @@ dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_
 dispatcher.add_handler(MessageHandler(Filters.document, handle_file))
 dispatcher.add_handler(CallbackQueryHandler(handle_button_callback))
 dispatcher.add_handler(CommandHandler('list', handle_torrents_list))
+dispatcher.add_handler(CommandHandler('stop_torrents', handle_stop_download_torrents))
+dispatcher.add_handler(CommandHandler('resume_torrents', handle_resume_download_torrents))
 dispatcher.add_error_handler(error_callback)
 
 st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.bot, deluge_service),

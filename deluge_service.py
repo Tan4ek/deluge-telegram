@@ -88,6 +88,12 @@ class DelugeService:
         else:
             return []
 
+    def stop_download_torrents(self):
+        self._deluge_client.core.set_config({'max_download_speed': "0"})
+
+    def resume_download_torrents(self):
+        self._deluge_client.core.set_config({'max_download_speed': "-1"})
+
     def _is_label_enabled(self) -> bool:
         if self._label_enable and self._label_id:
             return True
