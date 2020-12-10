@@ -10,6 +10,7 @@ class TorrentStatus(Enum):
     CREATED = 'Checking'
     DOWNLOADING = 'Downloading'
     DOWNLOADED = 'Seeding'
+    MOVING = 'Moving'
     ERROR = 'Error'
     UNKNOWN_STUB = '_unknown_stub_'
 
