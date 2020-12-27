@@ -37,6 +37,7 @@ EMOJI_MAP = {
     TorrentStatus.CREATED: emojize(':arrow_down:', use_aliases=True),
     TorrentStatus.DOWNLOADED: emojize(':white_check_mark:', use_aliases=True),
     TorrentStatus.DOWNLOADING: emojize(':arrow_double_down:', use_aliases=True),
+    TorrentStatus.MOVING: emojize(':soon:', use_aliases=True),
     TorrentStatus.ERROR: emojize(':sos:', use_aliases=True),
     TorrentStatus.UNKNOWN_STUB: emojize(':question:', use_aliases=True)
 }
