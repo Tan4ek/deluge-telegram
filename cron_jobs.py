@@ -44,11 +44,11 @@ class NotDownloadedTorrentsStatusCheckJob(CronJob):
 
     def run(self):
         for s in self._repository.not_downloaded_torrents():
-            telegram_user_id = s[0]
-            deluge_torrent_id = s[1]
-            old_status = s[2]
+            telegram_user_id = s['tg_user_id']
+            deluge_torrent_id = s['deluge_torrent_id']
+            old_status = s['deluge_torrent_status']
             ts = self._deluge_service.torrent_status(deluge_torrent_id)
-            if ts:
+            if ts and ts['name']:
                 torrent_name = ts['name']
                 deluge_state = ts['state']
 

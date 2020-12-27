@@ -63,7 +63,8 @@ def handle_message(update: Update, context: CallbackContext) -> None:
     if isinstance(message, str) and message.startswith('magnet'):
         magnet_uri = message
         try:
-            torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(magnet_uri, user_id)
+            torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(magnet_uri, user_id,
+                                                                               override_on_exist=True)
             context.bot.send_message(chat_id=chat_id, text="Downloading `{0}`".format(torrent_name),
                                      parse_mode=ParseMode.MARKDOWN)
         except Exception as e:
@@ -96,14 +97,14 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
         if not cache_value:
             raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
                              f'({query.from_user.first_name})')
-        callback_data = json.loads(cache_value[1])
+        callback_data = json.loads(cache_value['value'])
         if is_already_exist_callback(callback_data):
             torrent_id = callback_data['torrent_id']
             if callback_data['action'] == 'reload':
                 logging.debug('callback_action reload, torrent_id {}'.format(torrent_id))
                 cache_value = repository.get_cache(callback_data['cache_key'])
-                cache_key = cache_value[0]
-                cache_value = cache_value[1]
+                cache_key = cache_value['key']
+                cache_value = cache_value['value']
                 if not cache_value:
                     raise ValueError(f'no value for cache')
 
@@ -140,7 +141,8 @@ def handle_file(update: Update, context: CallbackContext):
         file = context.bot.get_file(file_id)
         base64_file_str = base64.b64encode(file.download_as_bytearray()).decode("utf-8")
         try:
-            torrent_name, deluge_torrent_id = start_download_torrent_by_file(base64_file_str, file_name, user_id)
+            torrent_name, deluge_torrent_id = start_download_torrent_by_file(base64_file_str, file_name, user_id,
+                                                                             override_on_exist=True)
             context.bot.send_message(chat_id=chat_id, text="Downloading `{0}`".format(torrent_name),
                                      parse_mode=ParseMode.MARKDOWN)
 
@@ -167,7 +169,7 @@ def handle_torrents_list(update: Update, context: CallbackContext):
     chat_id: int = update.effective_chat.id
     user_id: int = update.effective_chat.id
     user_torrents = repository.all_user_torrents(user_id)
-    torrents = deluge_service.torrents_status([i[4] for i in user_torrents])
+    torrents = deluge_service.torrents_status([i['deluge_torrent_id'] for i in user_torrents])
     # last updated at the end of the list
     sorted_torrents = sorted(torrents,
                              key=lambda r: r['completed_time'] if r['completed_time'] > 0 else r['time_added'],

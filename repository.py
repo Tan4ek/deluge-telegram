@@ -30,6 +30,7 @@ class Repository:
 
     def __init__(self, db_file):
         self.conn = sqlite3.connect(db_file, check_same_thread=False)
+        self.conn.row_factory = sqlite3.Row
         self.__ini_db()
 
     def __ini_db(self):
@@ -70,10 +71,11 @@ class Repository:
 
     def torrent_exist_by_deluge_id(self, deluge_torrent_id: str) -> bool:
         c = self.conn.cursor()
-        c.execute(f"SELECT COUNT(*) FROM {self._TORRENT_TABLE} WHERE deluge_torrent_id = '{deluge_torrent_id}'")
+        c.execute(
+            f"SELECT COUNT(*) as count FROM {self._TORRENT_TABLE} WHERE deluge_torrent_id = '{deluge_torrent_id}'")
         result = c.fetchone()
         if result and len(result) >= 1:
-            return result[0] >= 1
+            return result['count'] >= 1
         else:
             return False
 
