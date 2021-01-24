@@ -1,4 +1,5 @@
 import logging
+from collections import defaultdict
 
 from telegram import Bot, ParseMode
 
@@ -32,6 +33,7 @@ class DeleteExpiredCacheJob(CronJob):
 
 class NotDownloadedTorrentsStatusCheckJob(CronJob):
     _CHECK_DOWNLOADED_TORRENT_INTERVAL_SECONDS = 60
+    _TORRENT_CHECK_NO_DATA_RETRY = defaultdict(lambda: 0)
 
     def __init__(self, repository: Repository, bot: Bot, deluge_service: DelugeService):
         super().__init__()
@@ -61,6 +63,12 @@ class NotDownloadedTorrentsStatusCheckJob(CronJob):
                     self._repository.update_status(deluge_torrent_id, TorrentStatus.DOWNLOADING)
             else:
                 logging.warning(f"Skipping check status for {deluge_torrent_id}. No data.")
+                if NotDownloadedTorrentsStatusCheckJob._TORRENT_CHECK_NO_DATA_RETRY[deluge_torrent_id] > 3:
+                    self._repository.delete_torrent(deluge_torrent_id)
+                    NotDownloadedTorrentsStatusCheckJob._TORRENT_CHECK_NO_DATA_RETRY.pop(deluge_torrent_id, None)
+                    logging.warning(f"Delete torrent '{deluge_torrent_id}'. Looks like it deleted from deluge.")
+                else:
+                    NotDownloadedTorrentsStatusCheckJob._TORRENT_CHECK_NO_DATA_RETRY[deluge_torrent_id] += 1
 
 
 class ScanCommonTorrents(CronJob):

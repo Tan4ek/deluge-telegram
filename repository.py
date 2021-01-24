@@ -67,6 +67,13 @@ class Repository:
                 f"deluge_torrent_status) VALUES (?,?,?,?,?)",
                 x)
 
+    def delete_torrent(self, deluge_torrent_id: str):
+        with self.conn:
+            self.conn.execute(
+                f"DELETE FROM {self._TORRENT_TABLE} "
+                f"WHERE deluge_torrent_id = '{deluge_torrent_id}'")
+            return self.conn.total_changes
+
     def create_common_torrent(self, deluge_torrent_id: str, override_on_exist=False):
         return self.create_torrent(COMMON_FOR_ALL_TG_USER_ID, deluge_torrent_id, override_on_exist)
 
