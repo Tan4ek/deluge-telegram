@@ -73,6 +73,7 @@ def handle_message(update: Update, context: CallbackContext) -> None:
             if type(e) and type(e).__name__ == 'AddTorrentError' and torrent_id_matcher:
                 already_exist_torrent_id = torrent_id_matcher.group(1)
                 cache_key = cache_key_magnet_value(already_exist_torrent_id, user_id)
+                repository.create_cache(cache_key, magnet_uri, override_on_exist=True)
                 reply_markup = build_reply_markup(already_exist_torrent_id, cache_key)
                 context.bot.send_message(chat_id=chat_id,
                                          text='Torrent already downloaded, what to do?', reply_markup=reply_markup)
@@ -104,10 +105,12 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
             if callback_data['action'] == 'reload':
                 logging.debug('callback_action reload, torrent_id {}'.format(torrent_id))
                 cache_value = repository.get_cache(callback_data['cache_key'])
+                if not cache_value:
+                    raise ValueError(f"no value for 'cache_key': {callback_data['cache_key']}")
                 cache_key = cache_value['key']
                 cache_value = cache_value['value']
                 if not cache_value:
-                    raise ValueError(f'no value for cache')
+                    raise ValueError(f"empty value for 'cache_key': {callback_data['cache_key']}")
 
                 if '_magnet_value' in cache_key and cache_value.startswith('magnet'):
                     deluge_service.delete_torrent(torrent_id)
