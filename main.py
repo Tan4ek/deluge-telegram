@@ -37,6 +37,7 @@ EMOJI_MAP = {
     TorrentStatus.CREATED: emojize(':arrow_down:', use_aliases=True),
     TorrentStatus.DOWNLOADED: emojize(':white_check_mark:', use_aliases=True),
     TorrentStatus.DOWNLOADING: emojize(':arrow_double_down:', use_aliases=True),
+    TorrentStatus.QUEUED: emojize(':back:', use_aliases=True),
     TorrentStatus.MOVING: emojize(':soon:', use_aliases=True),
     TorrentStatus.ERROR: emojize(':sos:', use_aliases=True),
     TorrentStatus.UNKNOWN_STUB: emojize(':question:', use_aliases=True)
@@ -180,12 +181,58 @@ def handle_torrents_list(update: Update, context: CallbackContext):
                              reverse=False)
 
     def build_message_line(t) -> str:
-        emoji_t = EMOJI_MAP.get(TorrentStatus.get_by_value_safe(t['state']), EMOJI_MAP.get(TorrentStatus.UNKNOWN_STUB))
+        progress = t.get('progress', -1.0)
+        torrent_status = TorrentStatus.get_by_value_safe(t['state'])
+        emoji_t = EMOJI_MAP.get(TorrentStatus.UNKNOWN_STUB)
+        if torrent_status is TorrentStatus.ERROR:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.ERROR)
+        elif progress >= 100 and torrent_status is TorrentStatus.MOVING:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.MOVING)
+        elif progress >= 100:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.DOWNLOADED)
+        elif progress > 0:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.DOWNLOADING)
+        elif progress == 0:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.CREATED)
+
         return f"{emoji_t} `{t['name']}`"
 
     message_lines = [build_message_line(t) for t in sorted_torrents]
     context.bot.send_message(chat_id=chat_id,
                              text='\n'.join(message_lines),
+                             parse_mode=ParseMode.MARKDOWN)
+
+
+@restricted
+def handle_last_torrent_status(update: Update, context: CallbackContext):
+    chat_id: int = update.effective_chat.id
+    user_id: int = update.effective_chat.id
+    user_torrent = repository.last_torrent(user_id)
+    torrent = deluge_service.torrent_status(user_torrent['deluge_torrent_id'])
+
+    def build_message_line(t) -> str:
+        progress = t.get('progress', -1.0)
+        torrent_status = TorrentStatus.get_by_value_safe(t['state'])
+        emoji_t = EMOJI_MAP.get(TorrentStatus.UNKNOWN_STUB)
+        if torrent_status is TorrentStatus.ERROR:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.ERROR)
+        elif progress >= 100 and torrent_status is TorrentStatus.MOVING:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.MOVING)
+        elif progress >= 100:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.DOWNLOADED)
+        elif progress > 0:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.DOWNLOADING)
+        elif progress == 0:
+            emoji_t = EMOJI_MAP.get(TorrentStatus.CREATED)
+
+        progress_message = ''
+        if 0 <= progress < 100:
+            progress_message = f" `{progress}%`"
+
+        return f"{emoji_t}{progress_message} `{t['name']}`"
+
+    context.bot.send_message(chat_id=chat_id,
+                             text=build_message_line(torrent),
                              parse_mode=ParseMode.MARKDOWN)
 
 
@@ -279,6 +326,7 @@ dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_
 dispatcher.add_handler(MessageHandler(Filters.document, handle_file))
 dispatcher.add_handler(CallbackQueryHandler(handle_button_callback))
 dispatcher.add_handler(CommandHandler('list', handle_torrents_list))
+dispatcher.add_handler(CommandHandler('last_torrent_status', handle_last_torrent_status))
 dispatcher.add_handler(CommandHandler('stop_torrents', handle_stop_download_torrents))
 dispatcher.add_handler(CommandHandler('resume_torrents', handle_resume_download_torrents))
 dispatcher.add_error_handler(error_callback)

@@ -9,6 +9,7 @@ COMMON_FOR_ALL_TG_USER_ID = 0
 class TorrentStatus(Enum):
     CREATED = 'Checking'
     DOWNLOADING = 'Downloading'
+    QUEUED = 'Queued'
     DOWNLOADED = 'Seeding'
     MOVING = 'Moving'
     ERROR = 'Error'
@@ -110,6 +111,15 @@ class Repository:
         r = c.execute(f"SELECT tg_user_id, deluge_torrent_id, deluge_torrent_status FROM {self._TORRENT_TABLE} "
                       f"WHERE deluge_torrent_status IS NOT '{TorrentStatus.DOWNLOADED}'")
         return c.fetchall()
+
+    def last_torrent(self, tg_user_id: int):
+        c = self.conn.cursor()
+        r = c.execute(f"SELECT id, create_time, last_update_time, tg_user_id, deluge_torrent_id, deluge_torrent_status "
+                      f"FROM {self._TORRENT_TABLE} "
+                      f"WHERE tg_user_id = {tg_user_id} "
+                      "ORDER BY create_time DESC "
+                      "LIMIT 1")
+        return c.fetchone()
 
     def create_cache(self, key, value, ttl_seconds=60 * 60 * 24 * 30, override_on_exist=False) -> None:
         x = (key, value, datetime.utcnow().isoformat(), ttl_seconds)
