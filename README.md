@@ -5,7 +5,10 @@ cp config.ini.example config.ini
 vim config.ini
 ```
 # Build on Raspberry Pi 4
-`docker build -f Dockerfile.arm64 -t deluge-telegram .`
+```
+cp ./Dockerfile ./Dockerfile.arm64 && sed -i 's/FROM python:/FROM arm64v8\/python:/' ./Dockerfile.arm64
+docker build -f Dockerfile.arm64 -t deluge-telegram .
+```
 
 # Run in Docker
 `touch /home/user/db.sqlite3`
