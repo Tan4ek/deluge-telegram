@@ -8,9 +8,11 @@ import os.path
 import re
 import signal
 import sys
+from datetime import datetime
 from functools import wraps
 from hashlib import sha256
 
+import humanize
 from emoji import emojize
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
 from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater, CommandHandler
@@ -32,6 +34,7 @@ deluge_service = DelugeService(config)
 repository = Repository(_DB_SQLITE_FILE)
 
 ALLOWED_TELEGRAM_USER_IDS = [int(x) for x in config['telegram'].get('UserIds', "").split(",")]
+LIST_TORRENT_SIZE = 5
 
 EMOJI_MAP = {
     TorrentStatus.CREATED: emojize(':arrow_down:', use_aliases=True),
@@ -97,39 +100,48 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
     try:
         cache_value = repository.get_cache(query.data)
         user_id: int = query.from_user.id
-        if not cache_value:
-            raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
-                             f'({query.from_user.first_name})')
-        callback_data = json.loads(cache_value['value'])
-        if is_already_exist_callback(callback_data):
-            torrent_id = callback_data['torrent_id']
-            if callback_data['action'] == 'reload':
-                logging.debug('callback_action reload, torrent_id {}'.format(torrent_id))
-                cache_value = repository.get_cache(callback_data['cache_key'])
-                if not cache_value:
-                    raise ValueError(f"no value for 'cache_key': {callback_data['cache_key']}")
-                cache_key = cache_value['key']
-                cache_value = cache_value['value']
-                if not cache_value:
-                    raise ValueError(f"empty value for 'cache_key': {callback_data['cache_key']}")
+        if cache_value:
+            callback_data = json.loads(cache_value['value'])
+            if is_already_exist_callback(callback_data):
+                torrent_id = callback_data['torrent_id']
+                if callback_data['action'] == 'reload':
+                    logging.debug('callback_action reload, torrent_id {}'.format(torrent_id))
+                    cache_value = repository.get_cache(callback_data['cache_key'])
+                    if not cache_value:
+                        raise ValueError(f"no value for 'cache_key': {callback_data['cache_key']}")
+                    cache_key = cache_value['key']
+                    cache_value = cache_value['value']
+                    if not cache_value:
+                        raise ValueError(f"empty value for 'cache_key': {callback_data['cache_key']}")
 
-                if '_magnet_value' in cache_key and cache_value.startswith('magnet'):
-                    deluge_service.delete_torrent(torrent_id)
-                    torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(cache_value, user_id,
-                                                                                       override_on_exist=True)
-                    query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
-                elif '_file_value' in cache_key and len(cache_value) > 1:
-                    torrent_name = deluge_service.torrent_name_by_id(torrent_id)
-                    deluge_service.delete_torrent(torrent_id)
-                    torrent_name, deluge_torrent_id = start_download_torrent_by_file(cache_value,
-                                                                                     f'{torrent_name}.torrent', user_id,
-                                                                                     override_on_exist=True)
-                    query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
-            if callback_data['action'] == 'skip':
-                logging.debug('callback_action skip, torrent_id {}'.format(torrent_id))
-                query.edit_message_text(f'Torrent `{deluge_service.torrent_name_by_id(torrent_id)}` already exist. '
-                                        f'Skipping download.', parse_mode=ParseMode.MARKDOWN)
-
+                    if '_magnet_value' in cache_key and cache_value.startswith('magnet'):
+                        deluge_service.delete_torrent(torrent_id)
+                        torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(cache_value, user_id,
+                                                                                           override_on_exist=True)
+                        query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
+                    elif '_file_value' in cache_key and len(cache_value) > 1:
+                        torrent_name = deluge_service.torrent_name_by_id(torrent_id)
+                        deluge_service.delete_torrent(torrent_id)
+                        torrent_name, deluge_torrent_id = start_download_torrent_by_file(cache_value,
+                                                                                         f'{torrent_name}.torrent',
+                                                                                         user_id,
+                                                                                         override_on_exist=True)
+                        query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
+                if callback_data['action'] == 'skip':
+                    logging.debug('callback_action skip, torrent_id {}'.format(torrent_id))
+                    query.edit_message_text(f'Torrent `{deluge_service.torrent_name_by_id(torrent_id)}` already exist. '
+                                            f'Skipping download.', parse_mode=ParseMode.MARKDOWN)
+        else:
+            if "next_list_" in query.data:
+                offset = int(query.data.split('next_list_')[1])
+                reply_markup, text = torrents_list_message(user_id, offset=offset)
+                context.bot.edit_message_text(chat_id=update.effective_chat.id,
+                                              message_id=update.effective_message.message_id,
+                                              text=text, reply_markup=reply_markup,
+                                              parse_mode=ParseMode.MARKDOWN)
+            else:
+                raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
+                                 f'({query.from_user.first_name})')
     except Exception as e:
         query.edit_message_text("Sorry, I'm broke. Try to download later.", parse_mode=ParseMode.MARKDOWN)
         logging.error('error on process callback_data {}, error: {}'.format(query.data, str(e)))
@@ -173,12 +185,21 @@ def handle_file(update: Update, context: CallbackContext):
 def handle_torrents_list(update: Update, context: CallbackContext):
     chat_id: int = update.effective_chat.id
     user_id: int = update.effective_chat.id
-    user_torrents = repository.all_user_torrents(user_id)
+    reply_markup, text = torrents_list_message(user_id)
+    context.bot.send_message(chat_id=chat_id,
+                             text=text,
+                             parse_mode=ParseMode.MARKDOWN,
+                             reply_markup=reply_markup)
+
+
+def torrents_list_message(user_id: int, limit: int = LIST_TORRENT_SIZE, offset: int = 0):
+    user_torrents = repository.all_user_torrents(user_id, limit=LIST_TORRENT_SIZE * 3, offset=offset)
+    # TODO: fix not exists torrent from local db
     torrents = deluge_service.torrents_status([i['deluge_torrent_id'] for i in user_torrents])
     # last updated at the end of the list
     sorted_torrents = sorted(torrents,
                              key=lambda r: r['completed_time'] if r['completed_time'] > 0 else r['time_added'],
-                             reverse=False)
+                             reverse=True)
 
     def build_message_line(t) -> str:
         progress = t.get('progress', -1.0)
@@ -194,13 +215,28 @@ def handle_torrents_list(update: Update, context: CallbackContext):
             emoji_t = EMOJI_MAP.get(TorrentStatus.DOWNLOADING)
         elif progress == 0:
             emoji_t = EMOJI_MAP.get(TorrentStatus.CREATED)
+        if progress >= 100:
+            filex_size_progress = f"{humanize.naturalsize(t['total_wanted'])} {int(progress)}%"
+        else:
+            filex_size_progress = f"{humanize.naturalsize(t['total_done'])} / " \
+                                  f"{humanize.naturalsize(t['total_wanted'])} {int(progress)}%"
+        return f"{emoji_t} **{t['name']}** \n {filex_size_progress}, added " \
+               f"{humanize.naturaldate(datetime.fromtimestamp(t['time_added']))} \n"
 
-        return f"{emoji_t} `{t['name']}`"
-
-    message_lines = [build_message_line(t) for t in sorted_torrents]
-    context.bot.send_message(chat_id=chat_id,
-                             text='\n'.join(message_lines),
-                             parse_mode=ParseMode.MARKDOWN)
+    if offset > 0:
+        if len(sorted_torrents) > LIST_TORRENT_SIZE:
+            button_list = [
+                InlineKeyboardButton("prev", callback_data=f"next_list_{offset - limit}"),
+                InlineKeyboardButton("next", callback_data=f"next_list_{offset + limit}")
+            ]
+        else:
+            button_list = [InlineKeyboardButton("prev", callback_data=f"next_list_{offset - limit}")]
+    else:
+        button_list = [InlineKeyboardButton("next", callback_data=f"next_list_{limit}")]
+    reply_markup = InlineKeyboardMarkup([button_list])
+    message_lines = [build_message_line(t) for t in sorted_torrents[:LIST_TORRENT_SIZE]]
+    text = '\n'.join(message_lines)
+    return reply_markup, text
 
 
 @restricted

@@ -96,14 +96,16 @@ class Repository:
                               f"last_update_time='{datetime.utcnow().isoformat()}'"
                               f"WHERE deluge_torrent_id = '{deluge_torrent_id}'")
 
-    def all_user_torrents(self, tg_user_id: int, include_common=True, limit=20):
+    def all_user_torrents(self, tg_user_id: int, include_common=True, limit: int = 20, offset: int = 0):
         assert limit > 0, "negative limit"
         c = self.conn.cursor()
         r = c.execute(f"SELECT id, create_time, last_update_time, tg_user_id, deluge_torrent_id, deluge_torrent_status "
                       f"FROM {self._TORRENT_TABLE} "
                       f"WHERE tg_user_id = {tg_user_id} "
                       f"{'or tg_user_id = {}'.format(COMMON_FOR_ALL_TG_USER_ID) if include_common else ''} "
-                      f"LIMIT {limit}")
+                      f"ORDER BY create_time DESC "
+                      f"LIMIT {limit} "
+                      f"OFFSET {offset} ")
         return c.fetchmany(limit)
 
     def not_downloaded_torrents(self):

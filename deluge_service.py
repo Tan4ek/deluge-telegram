@@ -5,7 +5,7 @@ from deluge_client import DelugeRPCClient
 
 
 class DelugeService:
-    # list of deluge filed - https://libtorrent.org/single-page-ref.html
+    # list of deluge fields - https://libtorrent.org/single-page-ref.html
 
     def __init__(self, config):
         self._deluge_client = DelugeRPCClient(config.get('deluge', 'host'),
@@ -76,13 +76,14 @@ class DelugeService:
         return self._deluge_client.core.get_torrent_status(torrent_id, ['name', 'state'])
 
     def torrents_status(self, torrent_ids: List[str]) -> List[Dict[str, str]]:
-        fields = ['name', 'state', 'progress', 'completed_time', 'time_added']
+        fields = ['name', 'state', 'progress', 'completed_time', 'time_added', 'total_wanted', 'total_done']
+        # https://github.com/deluge-torrent/deluge/blob/deluge-2.0.3/deluge/core/core.py#L772
         torrents_dict = self._deluge_client.core.get_torrents_status({"id": [i for i in torrent_ids]}, fields)
         return DelugeService._dict_key_to_obj(torrents_dict)
 
     def labeled_torrents(self) -> List[Dict[str, str]]:
         if self._is_label_enabled():
-            fields = ['name', 'state', 'progress', 'completed_time', 'time_added']
+            fields = ['name', 'state', 'progress', 'completed_time', 'time_added', 'total_wanted', 'total_done']
             labeled_torrents = self._deluge_client.core.get_torrents_status({'label': self._label_id}, fields)
             return DelugeService._dict_key_to_obj(labeled_torrents)
         else:
