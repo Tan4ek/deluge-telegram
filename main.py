@@ -16,6 +16,7 @@ import humanize
 from emoji import emojize
 from telegram import InlineKeyboardButton, InlineKeyboardMarkup, Update, ParseMode
 from telegram.ext import CallbackQueryHandler, CallbackContext, MessageHandler, Filters, Updater, CommandHandler
+from telegram.utils import helpers
 
 from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob, ScanCommonTorrents
 from deluge_service import DelugeService
@@ -70,8 +71,9 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         try:
             torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(magnet_uri, user_id,
                                                                                override_on_exist=True)
-            context.bot.send_message(chat_id=chat_id, text="Downloading `{0}`".format(torrent_name),
-                                     parse_mode=ParseMode.MARKDOWN)
+            context.bot.send_message(chat_id=chat_id,
+                                     text=f"Downloading `{helpers.escape_markdown(torrent_name, version=2)}`",
+                                     parse_mode=ParseMode.MARKDOWN_V2)
         except Exception as e:
             torrent_id_matcher = torrent_id_matcher_from_exception(e)
             if type(e) and type(e).__name__ == 'AddTorrentError' and torrent_id_matcher:
@@ -85,8 +87,8 @@ def handle_message(update: Update, context: CallbackContext) -> None:
                 context.bot.send_message(chat_id=chat_id, text="Error add torrent: {}".format(str(e)))
     else:
         context.bot.send_message(chat_id=chat_id,
-                                 text="Link is not magnet".format(message),
-                                 parse_mode=ParseMode.MARKDOWN)
+                                 text="Link is not magnet",
+                                 parse_mode=ParseMode.MARKDOWN_V2)
 
 
 @restricted
@@ -118,7 +120,8 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                         deluge_service.delete_torrent(torrent_id)
                         torrent_name, deluge_torrent_id = start_download_torrent_by_magnet(cache_value, user_id,
                                                                                            override_on_exist=True)
-                        query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
+                        query.edit_message_text(f'Downloading `{helpers.escape_markdown(torrent_name, version=2)}`',
+                                                parse_mode=ParseMode.MARKDOWN_V2)
                     elif '_file_value' in cache_key and len(cache_value) > 1:
                         torrent_name = deluge_service.torrent_name_by_id(torrent_id)
                         deluge_service.delete_torrent(torrent_id)
@@ -126,11 +129,13 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                                                                                          f'{torrent_name}.torrent',
                                                                                          user_id,
                                                                                          override_on_exist=True)
-                        query.edit_message_text(f'Downloading `{torrent_name}`', parse_mode=ParseMode.MARKDOWN)
+                        query.edit_message_text(f'Downloading `{helpers.escape_markdown(torrent_name, version=2)}`',
+                                                parse_mode=ParseMode.MARKDOWN_V2)
                 if callback_data['action'] == 'skip':
                     logging.debug('callback_action skip, torrent_id {}'.format(torrent_id))
-                    query.edit_message_text(f'Torrent `{deluge_service.torrent_name_by_id(torrent_id)}` already exist. '
-                                            f'Skipping download.', parse_mode=ParseMode.MARKDOWN)
+                    query.edit_message_text(
+                        f'Torrent `{helpers.escape_markdown(deluge_service.torrent_name_by_id(torrent_id), version=2)}`'
+                        f' already exist. Skipping download.', parse_mode=ParseMode.MARKDOWN_V2)
         else:
             if "next_list_" in query.data:
                 offset = int(query.data.split('next_list_')[1])
@@ -138,12 +143,12 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                 context.bot.edit_message_text(chat_id=update.effective_chat.id,
                                               message_id=update.effective_message.message_id,
                                               text=text, reply_markup=reply_markup,
-                                              parse_mode=ParseMode.MARKDOWN)
+                                              parse_mode=ParseMode.MARKDOWN_V2)
             else:
                 raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
                                  f'({query.from_user.first_name})')
     except Exception as e:
-        query.edit_message_text("Sorry, I'm broke. Try to download later.", parse_mode=ParseMode.MARKDOWN)
+        query.edit_message_text("Sorry, I'm broke. Try to download later.", parse_mode=ParseMode.MARKDOWN_V2)
         logging.error('error on process callback_data {}, error: {}'.format(query.data, str(e)))
 
 
@@ -160,8 +165,9 @@ def handle_file(update: Update, context: CallbackContext):
         try:
             torrent_name, deluge_torrent_id = start_download_torrent_by_file(base64_file_str, file_name, user_id,
                                                                              override_on_exist=True)
-            context.bot.send_message(chat_id=chat_id, text="Downloading `{0}`".format(torrent_name),
-                                     parse_mode=ParseMode.MARKDOWN)
+            context.bot.send_message(chat_id=chat_id,
+                                     text=f"Downloading `{helpers.escape_markdown(torrent_name, version=2)}`",
+                                     parse_mode=ParseMode.MARKDOWN_V2)
 
         except Exception as e:
             torrent_id_matcher = torrent_id_matcher_from_exception(e)
@@ -177,8 +183,8 @@ def handle_file(update: Update, context: CallbackContext):
                                          text="Error add torrent file: {}".format(str(e)))
     else:
         context.bot.send_message(chat_id=chat_id,
-                                 text="File `{}` is not a `.torrent`".format(file_name),
-                                 parse_mode=ParseMode.MARKDOWN)
+                                 text=f"File `{helpers.escape_markdown(file_name, version=2)}` is not a `.torrent`",
+                                 parse_mode=ParseMode.MARKDOWN_V2)
 
 
 @restricted
@@ -188,7 +194,7 @@ def handle_torrents_list(update: Update, context: CallbackContext):
     reply_markup, text = torrents_list_message(user_id)
     context.bot.send_message(chat_id=chat_id,
                              text=text,
-                             parse_mode=ParseMode.MARKDOWN,
+                             parse_mode=ParseMode.MARKDOWN_V2,
                              reply_markup=reply_markup)
 
 
@@ -220,7 +226,8 @@ def torrents_list_message(user_id: int, limit: int = LIST_TORRENT_SIZE, offset: 
         else:
             filex_size_progress = f"{humanize.naturalsize(t['total_done'])} / " \
                                   f"{humanize.naturalsize(t['total_wanted'])} {int(progress)}%"
-        return f"{emoji_t} **{t['name']}** \n {filex_size_progress}, added " \
+        return f"{emoji_t} **{helpers.escape_markdown(t['name'], version=2)}** \n " \
+               f"{helpers.escape_markdown(filex_size_progress, version=2)}, added " \
                f"{humanize.naturaldate(datetime.fromtimestamp(t['time_added']))} \n"
 
     if offset > 0:
@@ -265,25 +272,26 @@ def handle_last_torrent_status(update: Update, context: CallbackContext):
         if 0 <= progress < 100:
             progress_message = f" `{progress}%`"
 
-        return f"{emoji_t}{progress_message} `{t['name']}`"
+        return f"{emoji_t}{helpers.escape_markdown(progress_message, version=2)} " \
+               f"`{helpers.escape_markdown(t['name'], version=2)}`"
 
     context.bot.send_message(chat_id=chat_id,
                              text=build_message_line(torrent),
-                             parse_mode=ParseMode.MARKDOWN)
+                             parse_mode=ParseMode.MARKDOWN_V2)
 
 
 @restricted
 def handle_stop_download_torrents(update: Update, context: CallbackContext):
     chat_id: int = update.effective_chat.id
     deluge_service.stop_download_torrents()
-    context.bot.send_message(chat_id=chat_id, text='Stopping download torrents', parse_mode=ParseMode.MARKDOWN)
+    context.bot.send_message(chat_id=chat_id, text='Stopping download torrents', parse_mode=ParseMode.MARKDOWN_V2)
 
 
 @restricted
 def handle_resume_download_torrents(update: Update, context: CallbackContext):
     deluge_service.resume_download_torrents()
     chat_id: int = update.effective_chat.id
-    context.bot.send_message(chat_id=chat_id, text='Starting download torrents', parse_mode=ParseMode.MARKDOWN)
+    context.bot.send_message(chat_id=chat_id, text='Starting download torrents', parse_mode=ParseMode.MARKDOWN_V2)
 
 
 def torrent_id_matcher_from_exception(e):
