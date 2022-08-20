@@ -20,6 +20,7 @@ from telegram.utils import helpers
 
 from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob, ScanCommonTorrents
 from deluge_service import DelugeService
+from repeated_task import RepeatJob, RepeatedJobManager
 from repository import Repository, TorrentStatus
 from schedule_thread import ScheduleThread
 
@@ -139,11 +140,17 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
         else:
             if "next_list_" in query.data:
                 offset = int(query.data.split('next_list_')[1])
-                reply_markup, text = torrents_list_message(user_id, offset=offset)
-                context.bot.edit_message_text(chat_id=update.effective_chat.id,
-                                              message_id=update.effective_message.message_id,
-                                              text=text, reply_markup=reply_markup,
-                                              parse_mode=ParseMode.MARKDOWN_V2)
+
+                def print_message():
+                    reply_markup, text = torrents_list_message(user_id, offset=offset)
+                    context.bot.edit_message_text(chat_id=update.effective_chat.id,
+                                                  message_id=update.effective_message.message_id,
+                                                  text=text,
+                                                  reply_markup=reply_markup,
+                                                  parse_mode=ParseMode.MARKDOWN_V2)
+
+                message_reload_manager.schedule(RepeatJob(update.effective_message.message_id, print_message))
+                print_message()
             else:
                 raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
                                  f'({query.from_user.first_name})')
@@ -191,11 +198,22 @@ def handle_file(update: Update, context: CallbackContext):
 def handle_torrents_list(update: Update, context: CallbackContext):
     chat_id: int = update.effective_chat.id
     user_id: int = update.effective_chat.id
+
     reply_markup, text = torrents_list_message(user_id)
-    context.bot.send_message(chat_id=chat_id,
-                             text=text,
-                             parse_mode=ParseMode.MARKDOWN_V2,
-                             reply_markup=reply_markup)
+    message = context.bot.send_message(chat_id=chat_id,
+                                       text=text,
+                                       parse_mode=ParseMode.MARKDOWN_V2,
+                                       reply_markup=reply_markup)
+
+    def update_torrent_list():
+        reply_markup, text = torrents_list_message(user_id)
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message.message_id,
+                                      text=text,
+                                      parse_mode=ParseMode.MARKDOWN_V2,
+                                      reply_markup=reply_markup)
+
+    message_reload_manager.schedule(RepeatJob(message.message_id, update_torrent_list))
 
 
 def torrents_list_message(user_id: int, limit: int = LIST_TORRENT_SIZE, offset: int = 0):
@@ -364,6 +382,8 @@ if config.has_section('socks5'):
             'password': socks5_cfg['password'],
         }
 
+message_reload_manager = RepeatedJobManager()
+
 tg_updater = Updater(config.get('telegram', 'token'), use_context=True, request_kwargs=tg_request_params)
 dispatcher = tg_updater.dispatcher
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_message))
@@ -379,6 +399,7 @@ st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.
                      ScanCommonTorrents(repository, deluge_service),
                      DeleteExpiredCacheJob(repository)])
 st.start()
+message_reload_manager.start()
 
 
 def stop_app(g, i):
