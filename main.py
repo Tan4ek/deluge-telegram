@@ -49,6 +49,10 @@ EMOJI_MAP = {
 }
 
 
+def repeat_job_id(user_id: int, message_id: int) -> str:
+    return f"{user_id}_{message_id}"
+
+
 def restricted(func):
     @wraps(func)
     def wrapped(update, context, *args, **kwargs):
@@ -149,7 +153,8 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                                                   reply_markup=reply_markup,
                                                   parse_mode=ParseMode.MARKDOWN_V2)
 
-                message_reload_manager.schedule(RepeatJob(update.effective_message.message_id, print_message))
+                message_reload_manager.schedule(
+                    RepeatJob(repeat_job_id(user_id, update.effective_message.message_id), print_message))
                 print_message()
             else:
                 raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
@@ -213,7 +218,7 @@ def handle_torrents_list(update: Update, context: CallbackContext):
                                       parse_mode=ParseMode.MARKDOWN_V2,
                                       reply_markup=reply_markup)
 
-    message_reload_manager.schedule(RepeatJob(message.message_id, update_torrent_list))
+    message_reload_manager.schedule(RepeatJob(repeat_job_id(user_id, message.message_id), update_torrent_list))
 
 
 def torrents_list_message(user_id: int, limit: int = LIST_TORRENT_SIZE, offset: int = 0):
