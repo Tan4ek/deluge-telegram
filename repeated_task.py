@@ -24,17 +24,17 @@ class RepeatedJobManager(Thread):
 
     def run(self):
         while True:
-            v = self._queue.get()
+            repeat_job = self._queue.get()
 
-            if isinstance(v, RepeatJob):
-                worker_thread = self._workers.get(v.uniq_id, None)
+            if isinstance(repeat_job, RepeatJob):
+                worker_thread = self._workers.get(repeat_job.uniq_id, None)
                 if worker_thread and worker_thread.is_alive():
-                    logging.info(f"Reset worker for {v.uniq_id}")
-                    worker_thread.reset(v.job)
+                    logging.info(f"Reset worker for {repeat_job.uniq_id}")
+                    worker_thread.reset(repeat_job.job)
                 else:
-                    logging.info(f"Create new worker for {v.uniq_id}")
-                    message_reloader = RepeatJobThread(v.uniq_id, v.repeat_interval, v.repeat_count, v.job)
-                    self._workers[v.uniq_id] = message_reloader
+                    logging.info(f"Create new worker for {repeat_job.uniq_id}")
+                    message_reloader = RepeatJobThread(repeat_job)
+                    self._workers[repeat_job.uniq_id] = message_reloader
                     message_reloader.start()
             self._queue.task_done()
 
@@ -44,23 +44,24 @@ class RepeatedJobManager(Thread):
 
 class RepeatJobThread(Thread):
 
-    def __init__(self, uniq_id: str, repeat_interval: timedelta, repeat_count: int, job: Callable[[], None]):
-        Thread.__init__(self, name=f"job-{uniq_id}", daemon=True)
-        self._repeat_interval = repeat_interval
-        self._repeat_count = repeat_count
-        self._job = job
-        self._counter = 0
+    def __init__(self, repeat_job: RepeatJob):
+        Thread.__init__(self, name=f"repeat-job-{repeat_job.uniq_id}", daemon=True)
+        self._uniq_id = repeat_job.uniq_id
+        self._repeat_interval = repeat_job.repeat_interval
+        self._repeat_count = repeat_job.repeat_count
+        self._job = repeat_job.job
+        self._execute_job_counter = 0
 
     def run(self):
-        while self._counter < self._repeat_count:
-            logging.info("refresh message")
+        while self._execute_job_counter < self._repeat_count:
+            time.sleep(self._repeat_interval.total_seconds())
+            logging.info(f"Execute job for {self._uniq_id}")
             try:
                 self._job()
             except Exception as e:
-                logging.error(f"User message reloader error {e}")
-            time.sleep(self._repeat_interval.total_seconds())
-            self._counter += 1
+                logging.error(f"RepeatJob {self._uniq_id} error. {e}")
+            self._execute_job_counter += 1
 
     def reset(self, job: Callable[[], None]):
-        self._counter = self._repeat_count
+        self._execute_job_counter = self._repeat_count
         self._job = job
