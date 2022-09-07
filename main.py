@@ -20,6 +20,7 @@ from telegram.utils import helpers
 
 from cron_jobs import DeleteExpiredCacheJob, NotDownloadedTorrentsStatusCheckJob, ScanCommonTorrents
 from deluge_service import DelugeService
+from repeated_task import RepeatJob, RepeatedJobManager
 from repository import Repository, TorrentStatus
 from schedule_thread import ScheduleThread
 
@@ -48,6 +49,10 @@ EMOJI_MAP = {
 }
 
 
+def repeat_job_id(user_id: int, message_id: int) -> str:
+    return f"{user_id}_{message_id}"
+
+
 def restricted(func):
     @wraps(func)
     def wrapped(update, context, *args, **kwargs):
@@ -74,6 +79,9 @@ def handle_message(update: Update, context: CallbackContext) -> None:
             context.bot.send_message(chat_id=chat_id,
                                      text=f"Downloading `{helpers.escape_markdown(torrent_name, version=2)}`",
                                      parse_mode=ParseMode.MARKDOWN_V2)
+
+            notify_about_free_space_if_need(chat_id, context.bot)
+
         except Exception as e:
             torrent_id_matcher = torrent_id_matcher_from_exception(e)
             if type(e) and type(e).__name__ == 'AddTorrentError' and torrent_id_matcher:
@@ -89,6 +97,11 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         context.bot.send_message(chat_id=chat_id,
                                  text="Link is not magnet",
                                  parse_mode=ParseMode.MARKDOWN_V2)
+
+
+def storage_lower_threshold_notification_bytes():
+    threshold_gb = int(config.get('storage', 'FreeSpaceLowerThresholdNotificationGb', fallback='100'))
+    return threshold_gb * 1024 * 1024 * 1024
 
 
 @restricted
@@ -122,6 +135,8 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                                                                                            override_on_exist=True)
                         query.edit_message_text(f'Downloading `{helpers.escape_markdown(torrent_name, version=2)}`',
                                                 parse_mode=ParseMode.MARKDOWN_V2)
+
+                        notify_about_free_space_if_need(update.effective_chat.id, context.bot)
                     elif '_file_value' in cache_key and len(cache_value) > 1:
                         torrent_name = deluge_service.torrent_name_by_id(torrent_id)
                         deluge_service.delete_torrent(torrent_id)
@@ -131,6 +146,7 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                                                                                          override_on_exist=True)
                         query.edit_message_text(f'Downloading `{helpers.escape_markdown(torrent_name, version=2)}`',
                                                 parse_mode=ParseMode.MARKDOWN_V2)
+                        notify_about_free_space_if_need(update.effective_chat.id, context.bot)
                 if callback_data['action'] == 'skip':
                     logging.debug('callback_action skip, torrent_id {}'.format(torrent_id))
                     query.edit_message_text(
@@ -139,17 +155,35 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
         else:
             if "next_list_" in query.data:
                 offset = int(query.data.split('next_list_')[1])
-                reply_markup, text = torrents_list_message(user_id, offset=offset)
-                context.bot.edit_message_text(chat_id=update.effective_chat.id,
-                                              message_id=update.effective_message.message_id,
-                                              text=text, reply_markup=reply_markup,
-                                              parse_mode=ParseMode.MARKDOWN_V2)
+
+                def print_message():
+                    reply_markup, text = torrents_list_message(user_id, offset=offset)
+                    context.bot.edit_message_text(chat_id=update.effective_chat.id,
+                                                  message_id=update.effective_message.message_id,
+                                                  text=text,
+                                                  reply_markup=reply_markup,
+                                                  parse_mode=ParseMode.MARKDOWN_V2)
+
+                message_reload_manager.schedule(
+                    RepeatJob(repeat_job_id(user_id, update.effective_message.message_id), print_message))
+                print_message()
             else:
                 raise ValueError(f'cache is not found by key {query.data} for user {user_id} '
                                  f'({query.from_user.first_name})')
     except Exception as e:
         query.edit_message_text("Sorry, I'm broke. Try to download later.", parse_mode=ParseMode.MARKDOWN_V2)
         logging.error('error on process callback_data {}, error: {}'.format(query.data, str(e)))
+
+
+def notify_about_free_space_if_need(chat_id: int, bot):
+    free_space_bytes = deluge_service.free_space_bytes()
+    if free_space_bytes < storage_lower_threshold_notification_bytes():
+        humanize_free_space = helpers.escape_markdown(humanize.naturalsize(free_space_bytes),
+                                                      version=2)
+        warning_emoji = emojize(':heavy_exclamation_mark:', use_aliases=True)
+        bot.send_message(chat_id=chat_id,
+                         text=f"{warning_emoji}Warning, on device has left {humanize_free_space}",
+                         parse_mode=ParseMode.MARKDOWN_V2)
 
 
 @restricted
@@ -168,6 +202,8 @@ def handle_file(update: Update, context: CallbackContext):
             context.bot.send_message(chat_id=chat_id,
                                      text=f"Downloading `{helpers.escape_markdown(torrent_name, version=2)}`",
                                      parse_mode=ParseMode.MARKDOWN_V2)
+
+            notify_about_free_space_if_need(chat_id, context.bot)
 
         except Exception as e:
             torrent_id_matcher = torrent_id_matcher_from_exception(e)
@@ -191,11 +227,22 @@ def handle_file(update: Update, context: CallbackContext):
 def handle_torrents_list(update: Update, context: CallbackContext):
     chat_id: int = update.effective_chat.id
     user_id: int = update.effective_chat.id
+
     reply_markup, text = torrents_list_message(user_id)
-    context.bot.send_message(chat_id=chat_id,
-                             text=text,
-                             parse_mode=ParseMode.MARKDOWN_V2,
-                             reply_markup=reply_markup)
+    message = context.bot.send_message(chat_id=chat_id,
+                                       text=text,
+                                       parse_mode=ParseMode.MARKDOWN_V2,
+                                       reply_markup=reply_markup)
+
+    def update_torrent_list():
+        reply_markup, text = torrents_list_message(user_id)
+        context.bot.edit_message_text(chat_id=chat_id,
+                                      message_id=message.message_id,
+                                      text=text,
+                                      parse_mode=ParseMode.MARKDOWN_V2,
+                                      reply_markup=reply_markup)
+
+    message_reload_manager.schedule(RepeatJob(repeat_job_id(user_id, message.message_id), update_torrent_list))
 
 
 def torrents_list_message(user_id: int, limit: int = LIST_TORRENT_SIZE, offset: int = 0):
@@ -364,6 +411,8 @@ if config.has_section('socks5'):
             'password': socks5_cfg['password'],
         }
 
+message_reload_manager = RepeatedJobManager()
+
 tg_updater = Updater(config.get('telegram', 'token'), use_context=True, request_kwargs=tg_request_params)
 dispatcher = tg_updater.dispatcher
 dispatcher.add_handler(MessageHandler(Filters.text & (~Filters.command), handle_message))
@@ -379,6 +428,7 @@ st = ScheduleThread([NotDownloadedTorrentsStatusCheckJob(repository, tg_updater.
                      ScanCommonTorrents(repository, deluge_service),
                      DeleteExpiredCacheJob(repository)])
 st.start()
+message_reload_manager.start()
 
 
 def stop_app(g, i):
