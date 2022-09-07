@@ -95,6 +95,10 @@ class DelugeService:
     def resume_download_torrents(self):
         self._deluge_client.core.set_config({'max_download_speed': "-1"})
 
+    def free_space_bytes(self) -> int:
+        # https://github.com/deluge-torrent/deluge/blob/deluge-2.0.3/deluge/core/core.py#L1235
+        return self._deluge_client.core.get_free_space()
+
     def _is_label_enabled(self) -> bool:
         if self._label_enable and self._label_id:
             return True

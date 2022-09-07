@@ -15,3 +15,5 @@ Host = hide.my.ass
 Port = 443
 Username = suck_rkn
 Password = secure_password
+[storage]
+FreeSpaceLowerThresholdNotificationGb = 100

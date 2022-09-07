@@ -79,6 +79,9 @@ def handle_message(update: Update, context: CallbackContext) -> None:
             context.bot.send_message(chat_id=chat_id,
                                      text=f"Downloading `{helpers.escape_markdown(torrent_name, version=2)}`",
                                      parse_mode=ParseMode.MARKDOWN_V2)
+
+            notify_about_free_space_if_need(chat_id, context.bot)
+
         except Exception as e:
             torrent_id_matcher = torrent_id_matcher_from_exception(e)
             if type(e) and type(e).__name__ == 'AddTorrentError' and torrent_id_matcher:
@@ -94,6 +97,11 @@ def handle_message(update: Update, context: CallbackContext) -> None:
         context.bot.send_message(chat_id=chat_id,
                                  text="Link is not magnet",
                                  parse_mode=ParseMode.MARKDOWN_V2)
+
+
+def storage_lower_threshold_notification_bytes():
+    threshold_gb = int(config.get('storage', 'FreeSpaceLowerThresholdNotificationGb', fallback='100'))
+    return threshold_gb * 1024 * 1024 * 1024
 
 
 @restricted
@@ -127,6 +135,8 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                                                                                            override_on_exist=True)
                         query.edit_message_text(f'Downloading `{helpers.escape_markdown(torrent_name, version=2)}`',
                                                 parse_mode=ParseMode.MARKDOWN_V2)
+
+                        notify_about_free_space_if_need(update.effective_chat.id, context.bot)
                     elif '_file_value' in cache_key and len(cache_value) > 1:
                         torrent_name = deluge_service.torrent_name_by_id(torrent_id)
                         deluge_service.delete_torrent(torrent_id)
@@ -136,6 +146,7 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
                                                                                          override_on_exist=True)
                         query.edit_message_text(f'Downloading `{helpers.escape_markdown(torrent_name, version=2)}`',
                                                 parse_mode=ParseMode.MARKDOWN_V2)
+                        notify_about_free_space_if_need(update.effective_chat.id, context.bot)
                 if callback_data['action'] == 'skip':
                     logging.debug('callback_action skip, torrent_id {}'.format(torrent_id))
                     query.edit_message_text(
@@ -164,6 +175,17 @@ def handle_button_callback(update: Update, context: CallbackContext) -> None:
         logging.error('error on process callback_data {}, error: {}'.format(query.data, str(e)))
 
 
+def notify_about_free_space_if_need(chat_id: int, bot):
+    free_space_bytes = deluge_service.free_space_bytes()
+    if free_space_bytes < storage_lower_threshold_notification_bytes():
+        humanize_free_space = helpers.escape_markdown(humanize.naturalsize(free_space_bytes),
+                                                      version=2)
+        warning_emoji = emojize(':heavy_exclamation_mark:', use_aliases=True)
+        bot.send_message(chat_id=chat_id,
+                         text=f"{warning_emoji}Warning, on device has left {humanize_free_space}",
+                         parse_mode=ParseMode.MARKDOWN_V2)
+
+
 @restricted
 def handle_file(update: Update, context: CallbackContext):
     file_name = update.message.document.file_name
@@ -180,6 +202,8 @@ def handle_file(update: Update, context: CallbackContext):
             context.bot.send_message(chat_id=chat_id,
                                      text=f"Downloading `{helpers.escape_markdown(torrent_name, version=2)}`",
                                      parse_mode=ParseMode.MARKDOWN_V2)
+
+            notify_about_free_space_if_need(chat_id, context.bot)
 
         except Exception as e:
             torrent_id_matcher = torrent_id_matcher_from_exception(e)
