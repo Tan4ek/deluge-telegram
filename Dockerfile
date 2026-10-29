@@ -1,8 +1,10 @@
 FROM python:3.11.18-slim-bookworm AS deluge-telegram-build
+RUN python3 -m pip install --no-cache-dir --upgrade pip==26.2.2
 COPY requirements.txt .
 RUN pip3 install --no-cache-dir --user --no-warn-script-location -r requirements.txt
 
 FROM python:3.11.18-slim-bookworm
+RUN python3 -m pip install --no-cache-dir --upgrade pip==26.2.2
 WORKDIR /app
 COPY --from=deluge-telegram-build /root/.local /root/.local
 
