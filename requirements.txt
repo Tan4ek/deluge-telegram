@@ -1,5 +1,8 @@
 python-telegram-bot[socks]==13.13
-python-telegram-bot==13.13
+certifi>=2026.10.19
+tornado>=6.6,<7
+# shortcut: APScheduler 3.6.3 needs pkg_resources; remove with the Telegram API migration.
+setuptools==81.0.0
 deluge-client==1.9.0
 schedule==1.1.0
 emoji==1.6.3
